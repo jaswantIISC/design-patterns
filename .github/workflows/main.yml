@@ -22,3 +22,196 @@ jobs:
         run: |
           echo "Code pushed or PR created"
           # add build / test / lint commands here
+
+      - name: Extract issue numbers from commit message
+        id: issues
+        run: |
+          ISSUES=$(git log -1 --pretty=%B \
+            | grep -oE '#[0-9]+' \
+            | tr -d '#' \
+            | sort -u | tr '\n' ' ')
+
+          echo "issues=$ISSUES" >> $GITHUB_OUTPUT  
+        
+      - name: Exit if no issues referenced
+        if: steps.issues.outputs.issues == ''
+        run: echo "No issue references found."
+
+      - name: Reopen closed issues and comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for ISSUE in ${{ steps.issues.outputs.issues }}; do
+            echo "Checking issue #$ISSUE"
+
+            STATE=$(gh api repos/${{ github.repository }}/issues/$ISSUE --jq '.state' || echo "not_found")
+
+            if [ "$STATE" = "closed" ]; then
+              echo "Reopening issue #$ISSUE"
+
+              # Reopen issue
+              gh api \
+                -X PATCH \
+                repos/${{ github.repository }}/issues/$ISSUE \
+                -f state=open
+
+              # Add comment
+              gh api \
+                -X POST \
+                repos/${{ github.repository }}/issues/$ISSUE/comments \
+                -f body="🔄 This issue was automatically reopened because a new commit referenced it.\n\nCommit: https://github.com/${{ github.repository }}/commit/${{ github.sha }}\nAuthor: @${{ github.actor }}"
+            else
+              echo "Issue #$ISSUE is not closed (state=$STATE)"
+            fi
+          done
+Example commit messages that trigger reopening
+Fix loader race condition #217
+Refactor wallet logic (issue #217)
+Permissions (IMPORTANT)
+Add this once if your repo uses restricted permissions:
+
+permissions:
+  issues: write
+  contents: read
+Place it at the top level of the workflow file.
+
+Why this design is correct
+GitHub cannot link commits directly to issue state changes
+
+Commit-message parsing is the industry-standard workaround
+
+Uses idempotent checks (only reopens if closed)
+
+Adds an audit trail via issue comment
+
+Optional upgrades (easy to add)
+Reopen only if commit is after issue closed date
+
+Apply a label like reopened-by-commit
+
+Restrict reopening to certain branches
+
+Handle multiple commits per push
+
+Support PR references instead of commit messages
+
+If you want any of these, tell me which one and I’ll extend the workflow precisely.
+
+You said:
+Reopen only if commit is after issue closed date
+
+Apply a label like reopened-by-commit
+ChatGPT said:
+Below is a precise, production-grade GitHub Actions workflow that does both of your requested constraints:
+
+✅ Reopen the issue only if the commit timestamp is AFTER the issue was closed
+✅ Apply a label reopened-by-commit when reopening
+
+Key logic (important)
+For each referenced issue:
+
+Fetch:
+
+state
+
+closed_at
+
+Get commit timestamp (commit.committer.date)
+
+Reopen only if:
+
+issue.state == closed
+AND commit_date > issue.closed_at
+Add label reopened-by-commit
+
+Add an audit comment
+
+This avoids reopening issues for historical commits or rebases.
+
+.github/workflows/reopen-closed-issue-on-commit.yml
+name: Reopen Closed Issue on New Commit (Time Aware)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  reopen-issue:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract issue numbers from commit message
+        id: issues
+        run: |
+          ISSUES=$(git log -1 --pretty=%B \
+            | grep -oE '#[0-9]+' \
+            | tr -d '#' \
+            | sort -u | tr '\n' ' ')
+
+          echo "issues=$ISSUES" >> $GITHUB_OUTPUT
+
+      - name: Exit if no issues referenced
+        if: steps.issues.outputs.issues == ''
+        run: echo "No issue references found."
+
+      - name: Reopen closed issues if commit is newer than close date
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMMIT_DATE=$(gh api repos/${{ github.repository }}/commits/${{ github.sha }} --jq '.commit.committer.date')
+          COMMIT_TS=$(date -d "$COMMIT_DATE" +%s)
+
+          echo "Commit timestamp: $COMMIT_DATE ($COMMIT_TS)"
+
+          for ISSUE in ${{ steps.issues.outputs.issues }}; do
+            echo "Checking issue #$ISSUE"
+
+            ISSUE_JSON=$(gh api repos/${{ github.repository }}/issues/$ISSUE 2>/dev/null || echo "")
+            [ -z "$ISSUE_JSON" ] && continue
+
+            STATE=$(echo "$ISSUE_JSON" | jq -r '.state')
+            CLOSED_AT=$(echo "$ISSUE_JSON" | jq -r '.closed_at')
+
+            if [ "$STATE" != "closed" ] || [ "$CLOSED_AT" = "null" ]; then
+              echo "Issue #$ISSUE is not closed"
+              continue
+            fi
+
+            CLOSED_TS=$(date -d "$CLOSED_AT" +%s)
+
+            echo "Issue closed at: $CLOSED_AT ($CLOSED_TS)"
+
+            if [ "$COMMIT_TS" -le "$CLOSED_TS" ]; then
+              echo "Commit is older than issue close date. Skipping."
+              continue
+            fi
+
+            echo "Reopening issue #$ISSUE"
+
+            # Reopen issue
+            gh api \
+              -X PATCH \
+              repos/${{ github.repository }}/issues/$ISSUE \
+              -f state=open
+
+            # Add label
+            gh api \
+              -X POST \
+              repos/${{ github.repository }}/issues/$ISSUE/labels \
+              -f labels[]="reopened-by-commit"
+
+            # Add comment
+            gh api \
+              -X POST \
+              repos/${{ github.repository }}/issues/$ISSUE/comments \
+              -f body="🔄 **Issue automatically reopened**\n\nA commit was pushed *after* this issue was closed and references it.\n\n**Commit:** https://github.com/${{ github.repository }}/commit/${{ github.sha }}\n**Author:** @${{ github.actor }}"
+          done
