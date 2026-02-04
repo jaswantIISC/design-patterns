@@ -63,13 +63,7 @@ jobs:
               gh api \
                 -X POST \
                 repos/${{ github.repository }}/issues/$ISSUE/comments \
-                -f body="$(cat <<EOF
-                  🔄 **Issue automatically reopened**
-                  A commit was pushed *after* this issue was closed and references it.
-                  **Commit:** https://github.com/${{ github.repository }}/commit/${{ github.sha }}
-                  **Author:** @${{ github.actor }}
-                  EOF
-                  )"
+                -f body=body="🔄 This issue was automatically reopened because a new commit (https://github.com/${{ github.repository }}/commit/${{ github.sha }}) done by @${{ github.actor }}"
             else
               echo "Issue #$ISSUE is not closed (state=$STATE)"
             fi
