@@ -10,6 +10,10 @@ on:
       - main
       - master
 
+permissions:
+        issues: write
+        contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -65,6 +69,5 @@ jobs:
             fi
           done
 
-      - permissions:
-        issues: write
-        contents: read
+    
+    
