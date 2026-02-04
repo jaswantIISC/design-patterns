@@ -15,5 +15,8 @@ Instance is created only when first requested, improving resource usage but unsa
 ### 4. Double-Checked Locking
 Uses a synchronized block with two null checks to reduce locking overhead while maintaining thread safety (requires `volatile` instance).
 
+### 5. Static Inner Class (Initialization-on-Demand Holder)
+Instance is created when the inner helper class is loaded, providing lazy initialization with thread safety and no synchronization cost.
+
 
 
