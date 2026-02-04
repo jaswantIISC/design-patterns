@@ -64,6 +64,12 @@ jobs:
                 -X POST \
                 repos/${{ github.repository }}/issues/$ISSUE/comments \
                 -f body="🔄 This issue was automatically reopened because a new commit (https://github.com/${{ github.repository }}/commit/${{ github.sha }}) done by @${{ github.actor }}"
+             
+              # add label  
+              gh api \
+                -X POST \
+                repos/${{ github.repository }}/issues/$ISSUE/labels \
+                -f labels[]="reopened-by-commit"
             else
               echo "Issue #$ISSUE is not closed (state=$STATE)"
             fi
