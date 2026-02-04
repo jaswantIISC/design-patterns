@@ -69,7 +69,10 @@ jobs:
               gh api \
                 -X POST \
                 repos/${{ github.repository }}/issues/$ISSUE/labels \
-                -f labels[]="reopened-by-commit"
+                -f name='reopened-by-commit' \
+                -f color='674ea7' \
+                -f description='This label is for issues reopened by commit'
+                
             else
               echo "Issue #$ISSUE is not closed (state=$STATE)"
             fi
