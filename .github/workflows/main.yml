@@ -74,5 +74,3 @@ jobs:
               echo "Issue #$ISSUE is not closed (state=$STATE)"
             fi
           done
-
-    
