@@ -22,11 +22,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run validation
-        run: |
-          echo "Code pushed or PR created"
-          # add build / test / lint commands here
-
       - name: Extract issue numbers from commit message
         id: issues
         run: |
@@ -53,19 +48,16 @@ jobs:
             if [ "$STATE" = "closed" ]; then
               echo "Reopening issue #$ISSUE"
 
-              # Reopen issue
               gh api \
                 -X PATCH \
                 repos/${{ github.repository }}/issues/$ISSUE \
                 -f state=open
 
-              # Add comment
               gh api \
                 -X POST \
                 repos/${{ github.repository }}/issues/$ISSUE/comments \
                 -f body="🔄 This issue was automatically reopened because a new commit (https://github.com/${{ github.repository }}/commit/${{ github.sha }}) done by @${{ github.actor }}"
              
-              # add label  
               gh api \
                 -X POST \
                 repos/${{ github.repository }}/issues/$ISSUE/labels \
