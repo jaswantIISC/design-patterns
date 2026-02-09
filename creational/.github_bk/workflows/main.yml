@@ -10,6 +10,10 @@ on:
       - main
       - master
 
+permissions:
+        issues: write
+        contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,7 +22,47 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run validation
+      - name: Extract issue numbers from commit message
+        id: issues
         run: |
-          echo "Code pushed or PR created"
-          # add build / test / lint commands here
+          ISSUES=$(git log -1 --pretty=%B \
+            | grep -oE '#[0-9]+' \
+            | tr -d '#' \
+            | sort -u | tr '\n' ' ')
+
+          echo "issues=$ISSUES" >> $GITHUB_OUTPUT  
+        
+      - name: Exit if no issues referenced
+        if: steps.issues.outputs.issues == ''
+        run: echo "No issue references found."
+
+      - name: Reopen closed issues and comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for ISSUE in ${{ steps.issues.outputs.issues }}; do
+            echo "Checking issue #$ISSUE"
+
+            STATE=$(gh api repos/${{ github.repository }}/issues/$ISSUE --jq '.state' || echo "not_found")
+
+            if [ "$STATE" = "closed" ]; then
+              echo "Reopening issue #$ISSUE"
+
+              gh api \
+                -X PATCH \
+                repos/${{ github.repository }}/issues/$ISSUE \
+                -f state=open
+
+              gh api \
+                -X POST \
+                repos/${{ github.repository }}/issues/$ISSUE/comments \
+                -f body="🔄 This issue was automatically reopened because a new commit (https://github.com/${{ github.repository }}/commit/${{ github.sha }}) done by @${{ github.actor }}"
+             
+              gh api \
+                -X POST \
+                repos/${{ github.repository }}/issues/$ISSUE/labels \
+                -f labels[]="reopened by new commit"     
+            else
+              echo "Issue #$ISSUE is not closed (state=$STATE)"
+            fi
+          done
