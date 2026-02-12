@@ -22,47 +22,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract issue numbers from commit message
-        id: issues
+      - name: Extract issue reference
+        id: issue
         run: |
-          ISSUES=$(git log -1 --pretty=%B \
-            | grep -oE '#[0-9]+' \
-            | tr -d '#' \
-            | sort -u | tr '\n' ' ')
+          COMMIT_MSG=$(git log -1 --pretty=%B | head -n 1)
 
-          echo "issues=$ISSUES" >> $GITHUB_OUTPUT  
-        
-      - name: Exit if no issues referenced
-        if: steps.issues.outputs.issues == ''
-        run: echo "No issue references found."
+          REF=$(echo "$COMMIT_MSG" | sed -E '
+            s|^https://github.com/([^/]+/[^/]+)/issues/([0-9]+).*|\1#\2|;
+            s|^([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+#[0-9]+).*|\1|;
+            s|^#([0-9]+).*|'"$GITHUB_REPOSITORY"'#\1|;
+          ')
 
-      - name: Reopen closed issues and comment
+          echo "issue=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Reopen issue if closed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for ISSUE in ${{ steps.issues.outputs.issues }}; do
-            echo "Checking issue #$ISSUE"
+          REPO="${{ steps.issue.outputs.issue %\#* }}"
+          ISSUE="${{ steps.issue.outputs.issue ##*\# }}"
 
-            STATE=$(gh api repos/${{ github.repository }}/issues/$ISSUE --jq '.state' || echo "not_found")
+          STATE=$(gh api repos/$REPO/issues/$ISSUE --jq '.state' 2>/dev/null || echo "not_found")
 
-            if [ "$STATE" = "closed" ]; then
-              echo "Reopening issue #$ISSUE"
-
-              gh api \
-                -X PATCH \
-                repos/${{ github.repository }}/issues/$ISSUE \
-                -f state=open
-
-              gh api \
-                -X POST \
-                repos/${{ github.repository }}/issues/$ISSUE/comments \
-                -f body="🔄 This issue was automatically reopened because a new commit (https://github.com/${{ github.repository }}/commit/${{ github.sha }}) done by @${{ github.actor }}"
-             
-              gh api \
-                -X POST \
-                repos/${{ github.repository }}/issues/$ISSUE/labels \
-                -f labels[]="reopened by new commit"     
-            else
-              echo "Issue #$ISSUE is not closed (state=$STATE)"
-            fi
-          done
+          if [ "$STATE" = "closed" ]; then
+            gh api -X PATCH repos/$REPO/issues/$ISSUE -f state=open
+            gh api -X POST repos/$REPO/issues/$ISSUE/comments \
+              -f body="🔄 Reopened due to commit https://github.com/${{ github.repository }}/commit/${{ github.sha }} by @${{ github.actor }}"
+            gh api -X POST repos/${{ github.repository }}/issues/$ISSUE/labels -f labels[]="reopened by new commit"  
+          fi
