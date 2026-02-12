@@ -17,6 +17,3 @@ Uses a synchronized block with two null checks to reduce locking overhead while 
 
 ### 5. Static Inner Class (Initialization-on-Demand Holder)
 Instance is created when the inner helper class is loaded, providing lazy initialization with thread safety and no synchronization cost.
-
-
-
