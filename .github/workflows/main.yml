@@ -26,21 +26,34 @@ jobs:
         id: issue
         run: |
           COMMIT_MSG=$(git log -1 --pretty=%B | head -n 1)
+          echo "Commit message: $COMMIT_MSG"
 
-          REF=$(echo "$COMMIT_MSG" | sed -E '
+          ISSUE_REF=$(echo "$COMMIT_MSG" | sed -E '
             s|^https://github.com/([^/]+/[^/]+)/issues/([0-9]+).*|\1#\2|;
             s|^([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+#[0-9]+).*|\1|;
             s|^#([0-9]+).*|'"$GITHUB_REPOSITORY"'#\1|;
           ')
 
-          echo "issue=$REF" >> "$GITHUB_OUTPUT"
-
+          # Validate final format
+          if ! echo "$ISSUE_REF" | grep -qE '^[^/]+/[^/]+#[0-9]+$'; then
+            echo "No valid issue reference found, skipping"
+            exit 0
+          fi
+          echo "issue=$ISSUE_REF" >> "$GITHUB_OUTPUT"
+          
       - name: Reopen issue if closed
+        if: steps.issue.outputs.issue != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_REF: ${{ steps.issue.outputs.issue }}
         run: |
-          REPO="${{ steps.issue.outputs.issue %\#* }}"
-          ISSUE="${{ steps.issue.outputs.issue ##*\# }}"
+          set -e
+
+          REPO="${ISSUE_REF%#*}"
+          ISSUE="${ISSUE_REF##*#}"
+
+          echo "Repo  : $REPO"
+          echo "Issue : $ISSUE"
 
           STATE=$(gh api repos/$REPO/issues/$ISSUE --jq '.state' 2>/dev/null || echo "not_found")
 
@@ -49,4 +62,9 @@ jobs:
             gh api -X POST repos/$REPO/issues/$ISSUE/comments \
               -f body="🔄 Reopened due to commit https://github.com/${{ github.repository }}/commit/${{ github.sha }} by @${{ github.actor }}"
             gh api -X POST repos/${{ github.repository }}/issues/$ISSUE/labels -f labels[]="reopened by new commit"  
+
+          else
+            echo "Issue not reopened (state=$STATE)"
           fi
+
+     
