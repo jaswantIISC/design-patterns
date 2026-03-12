@@ -1,0 +1,61 @@
+name: Reopen issue on new commit
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+        issues: write
+        contents: read
+
+jobs:
+  reopen-issue:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract issue reference
+        id: issue
+        run: |
+          set -e
+
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          echo "Commit message: $COMMIT_MSG"
+
+          ISSUE_REF=$(echo "$COMMIT_MSG" | sed -E '
+            s|^https://github.com/([^/]+/[^/]+)/issues/([0-9]+).*|\1#\2|;
+            s|^([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+#[0-9]+).*|\1|;
+            s|^#([0-9]+).*|'"$GITHUB_REPOSITORY"'#\1|;
+          ')
+
+          if ! echo "$ISSUE_REF" | grep -qE '^[^/]+/[^/]+#[0-9]+$'; then
+            echo "No issue reference found"
+            exit 0
+          fi
+
+          echo "issue=$ISSUE_REF" >> $GITHUB_OUTPUT
+
+      - name: Reopen issue if closed
+        if: steps.issue.outputs.issue != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_REF: ${{ steps.issue.outputs.issue }}
+        run: |
+          REPO="${ISSUE_REF%#*}"
+          ISSUE="${ISSUE_REF##*#}"
+
+          echo "Checking $REPO#$ISSUE"
+
+          STATE=$(gh api repos/$REPO/issues/$ISSUE --jq '.state' 2>/dev/null || echo "not_found")
+
+          if [ "$STATE" = "closed" ]; then
+            gh api -X PATCH repos/$REPO/issues/$ISSUE -f state=open
+            gh api -X POST repos/$REPO/issues/$ISSUE/comments \
+              -f body="🔄 Reopened due to commit https://github.com/${{ github.repository }}/commit/${{ github.sha }} by @${{ github.actor }}"
+          else
+            echo "Issue not reopened (state=$STATE)"
+          fi
